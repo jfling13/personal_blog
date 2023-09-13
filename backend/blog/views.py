@@ -77,23 +77,68 @@ def detail(request,post_id):
     return JsonResponse(post_data)
 
 def get_comments_by_post(request, post_id):
-    comments = models.Comment.objects.select_related('author__profile').filter(post_id=post_id)
+    page_size = 5
+    page_num = request.GET.get('page', 1)
+    comments = models.Comment.objects.select_related('author__profile').filter(post_id=post_id).order_by('-created_at')
+    paginator = Paginator(comments, page_size)
+    current_page = paginator.get_page(page_num)
+    has_more = current_page.has_next()
     comments_data = []
-    for comment in comments:
+    for comment in current_page:
       comment_dict = model_to_dict(comment)
       comment_dict["author_name"] = comment.author.username
+      comment_dict["created_at"] = comment.created_at.strftime('%Y-%m-%d %H:%M:%S')
       comment_dict["author_avatar"] = request.build_absolute_uri(comment.author.profile.avatar.url) if comment.author.profile.avatar else None  # 根据你的模型实际情况调整
       comments_data.append(comment_dict)
 
-    # comments_data = [model_to_dict(comment) for comment in comments]
-    
-    return JsonResponse(comments_data, safe=False)
+    response_data = {
+     'comments': comments_data,
+     'has_more': has_more
+    }
+    return JsonResponse(response_data, safe=False)      
 
 def register(request):
     return HttpResponse('注册')
 
+@csrf_exempt
 def login(request):
-    return HttpResponse('登录')
+    if request.method == "POST":
+        try:
+            # 获取登录信息
+            data = json.loads(request.body)
+            username = data.get('username')
+            password = data.get('password')
+            captcha = data.get('captcha')
+            if not captcha:
+                return JsonResponse({'error': 'captcha is required!'})
+
+            # 获取对应的用户
+            user = models.User.objects.get(username=username)
+            user_profile = models.UserProfile.objects.get(user_id=user.id)
+            
+            # 返回数据
+            response_data = {
+                'user': user.id,
+                # 'user_profile':user_profile.avatar
+            }
+            return JsonResponse({
+                'success': True,
+                'user': {'id': user.id,
+                 # 'avatar': user_profile.avatar, 如果你想添加avatar
+                 }
+            })
+
+        except models.User.DoesNotExist:
+            return JsonResponse({'error': 'User not found'})
+        except models.UserProfile.DoesNotExist:
+            return JsonResponse({'error': 'UserProfile not found'})
+        except Exception as e:
+            return JsonResponse({'error': str(e)})
+    else:
+        return JsonResponse({'error': 'Invalid request method'})
+
+
+
 
 def my_like(request,user_id,post_id):
     return HttpResponse('user_id对post_id的点赞')
@@ -110,35 +155,34 @@ def add_comment(request, post_id):
         try:
             # 获取评论文本和parent_id
             data = json.loads(request.body)
-            comment_text = data.get('text', '').strip()
-            parent_id = data.get('parent_id', None)
-
-            if not comment_text:
-                return JsonResponse({'error': 'Comment text is required!'}, status=400)
-
-            # 获取对应的帖子
-            post = models.Post.objects.get(id=post_id)
-
-            parent_comment = None
-            if parent_id:
-                parent_comment = models.Comment.objects.get(id=parent_id)
-
+            content = data.get('text', '').strip()
+            author_id = data.get('user')
+            parent_id = data.get('parent', None)
+            #获取userprofile中的头像
+            userprofile= models.UserProfile.objects.get(user_id=author_id)
+            avatar = request.build_absolute_uri(userprofile.avatar.url)
             # 创建新的评论
-            comment = models.Comment(content=comment_text, author=request.user, post=post, parent=parent_comment)
+            comment = models.Comment(content=content, author_id=author_id, post_id=post_id, parent_id=parent_id)
             comment.save()
+            response_data = {
+            'author': author_id,
+            'author_avatar': avatar,
+            'author_name': comment.author.username,
+            'content': content,
+            'created_at': comment.created_at.strftime('%Y-%m-%d %H:%M:%S'),
+            'id': comment.id,
+            'parent': parent_id,
+            'post': post_id,
+        }
 
             # 返回新评论的数据
-            response_data = {
-                'id': comment.id,
-                'content': comment.content,
-                'author_name': comment.author.username,
-                'created_at': comment.created_at.strftime('%Y-%m-%d %H:%M:%S'),
-                'parent_id': comment.parent.id if comment.parent else None
-            }
-            return JsonResponse(response_data, status=201)
+            return JsonResponse({
+                'success': True,'response_data': response_data}, status=200)
 
         except models.Post.DoesNotExist:
             return JsonResponse({'error': 'Post not found'}, status=404)
+        except models.User.DoesNotExist:
+            return JsonResponse({'error': 'User not found'}, status=404)
         except models.Comment.DoesNotExist:
             return JsonResponse({'error': 'Parent comment not found'}, status=404)
         except Exception as e:
