@@ -81,7 +81,7 @@ def get_comments_by_post(request, post_id):
     page_num = request.GET.get('page', 1)
     comments = models.Comment.objects.select_related('author__profile').filter(post_id=post_id).order_by('-created_at')
     paginator = Paginator(comments, page_size)
-    current_page = paginator.get_page(page_num)
+    current_page = paginator.page(page_num)
     has_more = current_page.has_next()
     comments_data = []
     for comment in current_page:
