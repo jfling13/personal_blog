@@ -50,7 +50,7 @@ class Comment(MPTTModel):
 
 class Like(models.Model):
     user = models.ForeignKey(User, on_delete=models.CASCADE)
-    comment = models.ForeignKey(Comment, on_delete=models.CASCADE) 
+    comment = models.ForeignKey(Comment, on_delete=models.CASCADE,null=True,blank=True) 
     post = models.ForeignKey(Post, on_delete=models.CASCADE) 
     created_at = models.DateTimeField(auto_now_add=True)
 
