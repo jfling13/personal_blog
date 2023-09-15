@@ -9,6 +9,33 @@ import re
 from django.views.decorators.csrf import csrf_exempt
 from django.contrib.auth.decorators import login_required
 import json
+from PIL import Image, ImageDraw, ImageFont
+import random
+import string
+
+def generate_random_string(length=5):
+    """生成一个随机字符串，用于验证码"""
+    return ''.join(random.choices(string.ascii_uppercase + string.digits, k=length))
+
+def get_captcha(request):
+    # 生成随机字符串
+    captcha_str = generate_random_string()
+
+    # 保存到session中，稍后用于验证
+    request.session['captcha'] = captcha_str
+
+    # 使用Pillow创建一个图像并将随机字符串写入图像
+    img = Image.new('RGB', (120, 50), color = (73, 109, 137))
+    d = ImageDraw.Draw(img)
+    fnt = ImageFont.truetype('/static/tff/CASTELAR.TTF', 25)  # 路径需要指向一个实际的.ttf字体文件
+    d.text((10,10), captcha_str, font=fnt, fill=(255, 255, 0))
+
+    # 将图像保存为PNG并发送到客户端
+    response = HttpResponse(content_type='image/png')
+    img.save(response, 'PNG')
+    return response
+
+
 
 def convert_img_src_to_absolute(request, html_content):
     def replacer(match):
@@ -25,7 +52,7 @@ def convert_img_src_to_absolute(request, html_content):
 # Create your views here.
 def index(request):
 
-    posts = models.Post.objects.filter(comfirmed=True).order_by('publish_date').annotate(
+    posts = models.Post.objects.filter(comfirmed=True).order_by('-publish_date').annotate(
     like_count=Count('like'),
     favorite_count=Count('favorite'),
     comment_count=Count('comment')
@@ -109,8 +136,11 @@ def login(request):
             username = data.get('username')
             password = data.get('password')
             captcha = data.get('captcha')
+            print(request.session.get('captcha'))
             if not captcha:
-                return JsonResponse({'error': 'captcha is required!'})
+                return JsonResponse({'error': 'Captcha is required!'})
+            if captcha != request.session.get('captcha'):
+                return JsonResponse({'error':'Captcha is wrong, try again!'})
 
             # 获取对应的用户
             user = models.User.objects.get(username=username)
