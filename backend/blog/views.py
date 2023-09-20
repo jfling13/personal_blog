@@ -12,6 +12,7 @@ import json
 from PIL import Image, ImageDraw, ImageFont
 import random
 import string
+import requests
 
 def generate_random_string(length=5):
     """生成一个随机字符串，用于验证码"""
@@ -122,7 +123,8 @@ def get_comments_by_post(request, post_id):
      'comments': comments_data,
      'has_more': has_more
     }
-    return JsonResponse(response_data, safe=False)      
+    return JsonResponse(response_data, safe=False) 
+     
 
 def register(request):
     return HttpResponse('注册')
@@ -135,29 +137,30 @@ def login(request):
             data = json.loads(request.body)
             username = data.get('username')
             password = data.get('password')
-            captcha = data.get('captcha')
-            print(request.session.get('captcha'))
-            if not captcha:
-                return JsonResponse({'error': 'Captcha is required!'})
-            if captcha != request.session.get('captcha'):
-                return JsonResponse({'error':'Captcha is wrong, try again!'})
-
-            # 获取对应的用户
-            user = models.User.objects.get(username=username)
-            user_profile = models.UserProfile.objects.get(user_id=user.id)
-            
-            # 返回数据
-            response_data = {
-                'user': user.id,
-                # 'user_profile':user_profile.avatar
-            }
-            return JsonResponse({
-                'success': True,
-                'user': {'id': user.id,
-                 # 'avatar': user_profile.avatar, 如果你想添加avatar
-                 }
+            recaptcha_response = data.get('captchaResponse')
+            # 通过 Google 进行验证
+            result = requests.post('https://www.google.com/recaptcha/api/siteverify', data={
+                 'secret': '6LfDfTooAAAAAKo3caSgO3kpALX6EUZbaBgBlmfI',  # 替换为你的 reCAPTCHA 密钥
+                 'response': recaptcha_response
             })
-
+             # 将响应解析为 JSON
+            result_json = result.json()
+            # 检查是否成功
+            if result_json.get('success'):
+                # reCAPTCHA 验证成功
+                # 获取对应的用户
+                user = models.User.objects.get(username=username)
+                if user.check_password(password):
+                    return JsonResponse({
+                     'success': True,
+                     'user': {'id': user.id,
+                     }
+                })
+                else:
+                    return JsonResponse({'error': 'password is wrong'})
+            else:
+                # reCAPTCHA 验证失败
+                return JsonResponse({'error': result_json.get('error-codes')[0]})
         except models.User.DoesNotExist:
             return JsonResponse({'error': 'User not found'})
         except models.UserProfile.DoesNotExist:
