@@ -60,6 +60,10 @@ SESSION_CACHE_ALIAS = 'default'
 
 SESSION_ENGINE = 'django.contrib.sessions.backends.cache'
 
+SESSION_COOKIE_SAMESITE = 'Lax'
+
+CSRF_COOKIE_SAMESITE = 'Lax'
+
 CACHES = {
     'default': {
         'BACKEND': 'django_redis.cache.RedisCache',
@@ -71,12 +75,12 @@ CACHES = {
 }
 
 
-CORS_ALLOWED_ORIGINS = [
-    "http://localhost:8080",
-]
+# CORS_ALLOWED_ORIGINS = [
+#     "http://localhost:8080",
+# ]
 
 
-# CORS_ALLOW_ALL_ORIGINS = True
+CORS_ALLOW_ALL_ORIGINS = True
 
 ROOT_URLCONF = 'backend.urls'
 
