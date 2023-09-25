@@ -13,6 +13,7 @@ from PIL import Image, ImageDraw, ImageFont
 import random
 import string
 import requests
+from rest_framework_simplejwt.tokens import RefreshToken
 
 def generate_random_string(length=5):
     """生成一个随机字符串，用于验证码"""
@@ -104,6 +105,24 @@ def detail(request,post_id):
     del post_data['mask']
     return JsonResponse(post_data)
 
+def profile(request):
+    user_id = request.GET.get('userId')
+    user = get_object_or_404(models.User, id=user_id)
+    avatar_url = get_object_or_404(models.UserProfile, user_id=user_id)
+    return JsonResponse({
+                     'success': True,
+                     'user': {
+                         'id': user.id,
+                         'username': user.username,
+                         'email': user.email,
+                        #  'avatar':avatar_url.avatar.url,
+                         'avatar':request.build_absolute_uri(avatar_url.avatar.url),
+                     }
+                })
+       
+    
+    
+    
 def get_comments_by_post(request, post_id):
     page_size = 5
     page_num = request.GET.get('page', 1)
@@ -150,10 +169,18 @@ def login(request):
                 # reCAPTCHA 验证成功
                 # 获取对应的用户
                 user = models.User.objects.get(username=username)
+                # avatar_url = models.UserProfile.objects.get(user_id=user.id)
                 if user.check_password(password):
+                    refresh = RefreshToken.for_user(user)
                     return JsonResponse({
                      'success': True,
-                     'user': {'id': user.id,
+                    #  'refresh_token': str(refresh),
+                     'access_token': str(refresh.access_token),
+                     'user': {
+                         'id': user.id,
+                        #  'username': user.username,
+                        #  'email': user.email,
+                        #  'avatar':request.build_absolute_uri(avatar_url.avatar.url),
                      }
                 })
                 else:
