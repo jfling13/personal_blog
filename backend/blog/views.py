@@ -13,7 +13,10 @@ from PIL import Image, ImageDraw, ImageFont
 import random
 import string
 import requests
+from django.db.models import Q
 from rest_framework_simplejwt.tokens import RefreshToken
+from django.db import IntegrityError, OperationalError
+from .serializers import PostSerializer
 
 def generate_random_string(length=5):
     """生成一个随机字符串，用于验证码"""
@@ -61,7 +64,7 @@ def index(request):
     )
     
     # 分页部分
-    per_page = 4
+    per_page = 8
     page = request.GET.get('page', 1)
     paginator = Paginator(posts, per_page)
 
@@ -92,8 +95,29 @@ def index(request):
         "results": data,
         "has_more": has_more,
     }
-    return JsonResponse(response_data, safe=False)
+    return JsonResponse(response_data, safe=True)
 
+@csrf_exempt
+def search(request):
+    if request.method == 'POST':
+        try:
+            user_id = request.POST['userId']
+            search = request.POST['query']
+            results = models.Post.objects.filter(Q(content__icontains=search))
+            history=models.History(query=search, user_id=user_id)
+            history.save()
+            serialized_data = PostSerializer(results, many=True).data
+            return JsonResponse({'success': True,'data': serialized_data}, status=200)
+        except models.Post.DoesNotExist:
+            return JsonResponse({'error': 'Post not found'}, status=404)
+        except models.User.DoesNotExist:
+            return JsonResponse({'error': 'User not found'}, status=404)
+        except Exception as e:
+            return JsonResponse({'error': str(e)}, status=500)
+    else:
+        return JsonResponse({'error': 'Invalid request method'}, status=405)
+            
+            
 
 def detail(request,post_id):
     detail = get_object_or_404(models.Post, id=post_id)
@@ -119,8 +143,67 @@ def profile(request):
                          'avatar':request.build_absolute_uri(avatar_url.avatar.url),
                      }
                 })
-       
+
+def my_posts(request):
+    user_id = request.GET.get('userId')
+    posts = models.Post.objects.filter(comfirmed=True,author_id=1).order_by('-publish_date').annotate(like_count=Count('like'),
+    favorite_count=Count('favorite'),
+    comment_count=Count('comment'))
+    data = [
+        {
+            **{k: v if k != 'author' else post.author.username for k, v in model_to_dict(post).items() if k != 'mask'}, 
+            'mask_url': request.build_absolute_uri(post.mask.url) if post.mask else None,
+            'like_count': post.like_count,
+            'favorite_count': post.favorite_count,
+            'comment_count': post.comment_count,
+        }
+        for post in posts
+    ]
     
+    return JsonResponse(data, safe=False)
+         
+def my_favorites(request):
+    user_id = request.GET.get('userId')
+    fav_post_ids=models.Favorite.objects.filter(user_id=1).order_by('-created_at').values_list('post_id',flat=True)
+    fav_posts = models.Post.objects.filter(id__in=fav_post_ids,comfirmed=True).annotate(
+        like_count=Count('like'),
+        favorite_count=Count('favorite'),
+        comment_count=Count('comment')
+    )
+    data = [
+        {
+            **{k: v if k != 'author' else post.author.username for k, v in model_to_dict(post).items() if k != 'mask'}, 
+            'mask_url': request.build_absolute_uri(post.mask.url) if post.mask else None,
+            'like_count': post.like_count,
+            'favorite_count': post.favorite_count,
+            'comment_count': post.comment_count,
+        }
+        for post in fav_posts
+    ]
+    
+    return JsonResponse(data, safe=False)
+
+def my_likes(request):
+    user_id = request.GET.get('userId')
+    liked_post_ids=models.Like.objects.filter(user_id=1).order_by('-created_at').values_list('post_id',flat=True)
+    liked_posts = models.Post.objects.filter(id__in=liked_post_ids,comfirmed=True).annotate(
+        like_count=Count('like'),
+        favorite_count=Count('favorite'),
+        comment_count=Count('comment')
+    )
+    
+    data = [
+        {
+            **{k: v if k != 'author' else post.author.username for k, v in model_to_dict(post).items() if k != 'mask'}, 
+            'mask_url': request.build_absolute_uri(post.mask.url) if post.mask else None,
+            'like_count': post.like_count,
+            'favorite_count': post.favorite_count,
+            'comment_count': post.comment_count,
+        }
+        for post in liked_posts
+    ]
+    
+    return JsonResponse(data, safe=False)   
     
     
 def get_comments_by_post(request, post_id):
@@ -159,7 +242,7 @@ def login(request):
             recaptcha_response = data.get('captchaResponse')
             # 通过 Google 进行验证
             result = requests.post('https://www.google.com/recaptcha/api/siteverify', data={
-                 'secret': '6LfDfTooAAAAAKo3caSgO3kpALX6EUZbaBgBlmfI',  # 替换为你的 reCAPTCHA 密钥
+                 'secret': '6LdjBtEoAAAAAHsViydgDVRZ_FnWBljni_V84RJd',  # 替换为你的 reCAPTCHA 密钥
                  'response': recaptcha_response
             })
              # 将响应解析为 JSON
@@ -199,9 +282,32 @@ def login(request):
 
 
 
+@csrf_exempt
+def add_like(request,post_id,comment_id):
+    if request.method == "POST":
+        try:
+            data = json.loads(request.body)
+            author_id = data.get('user')
+            # 创建新的like
+            user = get_object_or_404(models.User, id=author_id)
+            post = get_object_or_404(models.Post, id=post_id)
+            comment = None
+            if comment_id:
+                comment = get_object_or_404(models.Comment, id=comment_id)
+            like = models.Like(user=user, post=post, comment=comment)
+            like.save()
+            return JsonResponse({'success': True}, status=200)
 
-def my_like(request,user_id,post_id):
-    return HttpResponse('user_id对post_id的点赞')
+        except models.Post.DoesNotExist:
+            return JsonResponse({'error': 'Post not found'}, status=404)
+        except models.User.DoesNotExist:
+            return JsonResponse({'error': 'User not found'}, status=404)
+        except models.Comment.DoesNotExist:
+            return JsonResponse({'error': 'Parent comment not found'}, status=404)
+        except Exception as e:
+            return JsonResponse({'error': str(e)}, status=500)
+    else:
+        return JsonResponse({'error': 'Invalid request method'}, status=405)
 
 def my_favorite(request,user_id):
     return HttpResponse('user_id的收藏')
@@ -249,6 +355,46 @@ def add_comment(request, post_id):
             return JsonResponse({'error': str(e)}, status=500)
     else:
         return JsonResponse({'error': 'Invalid request method'}, status=405)
+    
+@csrf_exempt
+def change_avatar(request):
+    if request.method == "POST":
+        user_id = request.POST['userId']
+        try:
+            profile = get_object_or_404(models.UserProfile, user_id=user_id)
+            profile.avatar = request.FILES['avatar']
+            profile.save()
+            return JsonResponse({"success": True, "message": "Avatar updated successfully!"})
+        except models.UserProfile.DoesNotExist:
+            return JsonResponse({'error':'User not found'},status=404)
+        except Exception as e:
+            return JsonResponse({'error': str(e)}, status=500)
 
 
 
+@csrf_exempt
+def add_posts(request):
+    
+    if request.method == 'POST':
+        try:
+            
+            # 获取数据
+            user_id = request.POST.get('userId')
+            title = request.POST.get('title')
+            content = request.POST.get('content')
+            is_public = request.POST.get('isPublic').lower() == "true"  # 前端只会是字符串，==是判断
+            image = request.FILES.get('image')
+            
+            post = models.Post(title=title,content=content,author_id=user_id,mask=image,comfirmed=is_public)
+            post.save()
+            return JsonResponse({"success":True,"message":'帖子已成功发布！'},status=200)
+            
+        except IntegrityError:
+                return JsonResponse({'error': '数据完整性错误'}, status=500)
+        except OperationalError:
+                return JsonResponse({'error': '数据库操作错误'}, status=500)
+        except Exception as e:
+                return JsonResponse({'error': str(e)}, status=500)
+        
+    else:
+        return JsonResponse({'error': '错误的请求方法'}, status=400)

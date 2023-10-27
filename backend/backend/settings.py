@@ -45,6 +45,7 @@ INSTALLED_APPS = [
     'mptt',
     'django.contrib.staticfiles',
     'blog',
+    # 'djangorestframework',
 ]
 
 MIDDLEWARE = [
